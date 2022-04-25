@@ -450,6 +450,7 @@ int falco_init(int argc, char **argv)
 #endif
 
 	std::string errstr;
+    // 调用 application 类的 init() 方法初始化命令行参数。
 	bool successful = app.init(argc, argv, errstr);
 
 	if(!successful)
@@ -462,12 +463,14 @@ int falco_init(int argc, char **argv)
 	{
 		string all_rules;
 
+        // 如果指定了 --help 参数，打印帮助信息后直接退出。
 		if(app.options().help)
 		{
 			printf("%s", app.options().usage().c_str());
 			return EXIT_SUCCESS;
 		}
 
+        // 如果指定了 --version 参数，打印版本信息后直接退出。
 		if(app.options().print_version_info)
 		{
 			printf("Falco version: %s\n", FALCO_VERSION);
@@ -475,9 +478,13 @@ int falco_init(int argc, char **argv)
 			return EXIT_SUCCESS;
 		}
 
+        // 创建一个 libsinsp 库中的 snisp 对象。
 		inspector = new sinsp();
+        // 如果指定了 -b 参数，则将 inspect 设置成以 base64 编码格式输出数据。
 		inspector->set_buffer_format(app.options().event_buffer_format);
 
+        // 如果指定了 --cri 参数，则为 inspector 设置 cri socket 文件的路径。
+        // 该选项可使用多次。
 		// If required, set the CRI paths
 		for (auto &p : app.options().cri_socket_paths)
 		{
@@ -498,6 +505,7 @@ int falco_init(int argc, char **argv)
 			inspector->set_snaplen(app.options().snaplen);
 		}
 
+        // 如果指定了 -i 参数，则打印所有默认被忽略的事件类型，然后退出。
 		if(app.options().print_ignored_events)
 		{
 			print_all_ignored_events(inspector);
@@ -505,8 +513,11 @@ int falco_init(int argc, char **argv)
 			return EXIT_SUCCESS;
 		}
 
+        // 实例化一个 falco 规则引擎对象。
+        // 参数表示是否初始化随机数生成器。
 		engine = new falco_engine(true);
 
+        // 根据命令行参数设置告警信息的输出格式。
 		configure_output_format(app, engine);
 
 		// Create "factories" that can create filters/formatters for
@@ -517,20 +528,25 @@ int falco_init(int argc, char **argv)
 		std::shared_ptr<gen_event_formatter_factory> syscall_formatter_factory(new sinsp_evt_formatter_factory(inspector));
 		std::shared_ptr<gen_event_formatter_factory> k8s_audit_formatter_factory(new json_event_formatter_factory(k8s_audit_filter_factory));
 
+        // 为系统调用数据源和 k8s 审计数据源设置过滤器和格式化器。
 		engine->add_source(syscall_source, syscall_filter_factory, syscall_formatter_factory);
 		engine->add_source(k8s_audit_source, k8s_audit_filter_factory, k8s_audit_formatter_factory);
 
+        // 如果指定了 --disable-source 参数，则从 enabled_sources 中移除相应的数据源。
 		for(const auto &src : app.options().disable_sources)
 		{
 			enabled_sources.erase(src);
 		}
 
+        // 不能同时将系统调用数据源和 k8s 审计数据源同时移除。
 		// XXX/mstemm technically this isn't right, you could disable syscall *and* k8s_audit and configure a plugin.
 		if(enabled_sources.empty())
 		{
 			throw std::invalid_argument("The event source \"syscall\" and \"k8s_audit\" can not be disabled together");
 		}
 
+        // 如果指定了 --validate 参数，则调用 falco_engine 对象的 load_rules_file() 方法
+        // 检测指定的规则文件是否存在错误。检测完毕后退出。
 		if(app.options().validate_rules_filenames.size() > 0)
 		{
 			falco_logger::log(LOG_INFO, "Validating rules file(s):\n");
@@ -558,6 +574,7 @@ int falco_init(int argc, char **argv)
 
 		falco_configuration config;
 
+        // 如果指定了 -c 参数，则调用 falco_configuration 对象的 init() 方法使用指定的配置文件初始化配置。
 		if (app.options().conf_filename.size())
 		{
 			config.init(app.options().conf_filename, app.options().cmdline_config_options);
@@ -577,6 +594,7 @@ int falco_init(int argc, char **argv)
 			throw std::runtime_error(errstr);
 		}
 
+        // 下面几段代码初始化与插件相关的事务。
 		// The event source is syscall by default. If an input
 		// plugin was found, the source is the source of that
 		// plugin.
@@ -673,6 +691,7 @@ int falco_init(int argc, char **argv)
 
 		std::list<sinsp_plugin::info> infos = sinsp_plugin::plugin_infos(inspector);
 
+        // 如果指定了 --list-plugins，则打印所有已加载的插件信息并退出。
 		if(app.options().list_plugins)
 		{
 			std::ostringstream os;
@@ -700,6 +719,7 @@ int falco_init(int argc, char **argv)
 			return EXIT_SUCCESS;
 		}
 
+        // 如果指定了 --list 参数，则打印所有已定义的字段并退出。
 		if(app.options().list_fields)
 		{
 			list_source_fields(engine, app.options().verbose, app.options().names_only, app.options().list_source_fields);
@@ -713,6 +733,7 @@ int falco_init(int argc, char **argv)
 
 		engine->set_min_priority(config.m_min_priority);
 
+        // 根据 --unbuffered 参数的值设置 m_buffered_outputs 字段。
 		config.m_buffered_outputs = !app.options().unbuffered_outputs;
 
 		if(config.m_rules_filenames.size() == 0)
@@ -726,6 +747,7 @@ int falco_init(int argc, char **argv)
 			falco_logger::log(LOG_DEBUG, string("   ") + filename + "\n");
 		}
 
+        // 加载所有的规则文件。
 		for (auto filename : config.m_rules_filenames)
 		{
 			falco_logger::log(LOG_INFO, "Loading rules from file " + filename + ":\n");
@@ -754,12 +776,14 @@ int falco_init(int argc, char **argv)
 			}
 		}
 
+        // 如果指定了 -D 参数,则禁止规则名中含有参数值指定字符串的规则。
 		for (auto substring : app.options().disabled_rule_substrings)
 		{
 			falco_logger::log(LOG_INFO, "Disabling rules matching substring: " + substring + "\n");
 			engine->enable_rule(substring, false);
 		}
 
+        // 如果指定了 -T 参数，则禁止含有指定 tag 的规则。
 		if(app.options().disabled_rule_tags.size() > 0)
 		{
 			for(auto &tag : app.options().disabled_rule_tags)
@@ -769,6 +793,8 @@ int falco_init(int argc, char **argv)
 			engine->enable_rule_by_tag(app.options().disabled_rule_tags, false);
 		}
 
+        // 如果指定了 -t 参数，则只加载含有指定 tag 的规则。
+        // 不能与 -D 参数同时使用。
 		if(app.options().enabled_rule_tags.size() > 0)
 		{
 
@@ -782,6 +808,7 @@ int falco_init(int argc, char **argv)
 			engine->enable_rule_by_tag(app.options().enabled_rule_tags, true);
 		}
 
+        // 如果指定了 --support 参数，则打印相关信息并退出。
 		if(app.options().print_support)
 		{
 			nlohmann::json support;
@@ -843,6 +870,7 @@ int falco_init(int argc, char **argv)
 			hostname = c_hostname;
 		}
 
+        // 如果没有指定 -A 参数，则将 event type 为 EF_DROP_SIMPLE_CONS 的事件丢掉。
 		if(!app.options().all_events)
 		{
 			// For syscalls, see if any event types used by the
@@ -857,12 +885,14 @@ int falco_init(int argc, char **argv)
 			inspector->set_drop_event_flags(EF_DROP_SIMPLE_CONS);
 		}
 
+        // 如果指定了 -L 参数，则打印所有规则的名称和描述信息，然后退出。
 		if (app.options().describe_all_rules)
 		{
 			engine->describe_rule(NULL);
 			goto exit;
 		}
 
+        // 如果指定 -l 参数，打印指定的规则的信息并退出。
 		if (!app.options().describe_rule.empty())
 		{
 			engine->describe_rule(&(app.options().describe_rule));
@@ -871,6 +901,7 @@ int falco_init(int argc, char **argv)
 
 		inspector->set_hostname_and_port_resolution_mode(false);
 
+        // 设置信号处理程序。
 		if(signal(SIGINT, signal_callback) == SIG_ERR)
 		{
 			fprintf(stderr, "An error occurred while setting SIGINT signal handler.\n");
@@ -885,6 +916,7 @@ int falco_init(int argc, char **argv)
 			goto exit;
 		}
 
+        // 当接收到 SIGUSR1 信号后，重新打开输出通道。
 		if(signal(SIGUSR1, reopen_outputs) == SIG_ERR)
 		{
 			fprintf(stderr, "An error occurred while setting SIGUSR1 signal handler.\n");
@@ -892,6 +924,7 @@ int falco_init(int argc, char **argv)
 			goto exit;
 		}
 
+        // 当接收到 SIGHUP 信号后，重启 falco。
 		if(signal(SIGHUP, restart_falco) == SIG_ERR)
 		{
 			fprintf(stderr, "An error occurred while setting SIGHUP signal handler.\n");
@@ -899,6 +932,7 @@ int falco_init(int argc, char **argv)
 			goto exit;
 		}
 
+        // 如果指定了 -d 参数，则将进程变为 daemon 进程，并将 PID 写入 PID 文件中。
 		// If daemonizing, do it here so any init errors will
 		// be returned in the foreground process.
 		if (app.options().daemon && !g_daemonized) {
@@ -956,6 +990,7 @@ int falco_init(int argc, char **argv)
 			g_daemonized = true;
 		}
 
+        // 创建并初始化数据输出对象。
 		outputs = new falco_outputs();
 
 		outputs->init(engine,
@@ -973,6 +1008,7 @@ int falco_init(int argc, char **argv)
 			outputs->add_output(output);
 		}
 
+        // 如果指定了 -e 参数，则从指定的文件中读取事件数据。
 		if(app.options().trace_filename.size())
 		{
 			// Try to open the trace file as a
@@ -1026,6 +1062,7 @@ int falco_init(int argc, char **argv)
 		{
 			open_t open_cb = [&app](sinsp* inspector)
 			{
+                // 如果指定了 --userspace 参数，则从用户态采集事件数据。
 				if(app.options().userspace)
 				{
 					// open_udig() is the underlying method used in the capture code to parse userspace events from the kernel.
@@ -1035,13 +1072,17 @@ int falco_init(int argc, char **argv)
 					inspector->open_udig();
 					return;
 				}
+                // 打开 inspector 的默认回调函数是 inspector 对象的 open() 方法。
 				inspector->open();
 			};
+            // 以 SCAP_MODE_NODRIVER 模式打开 scap。
 			open_t open_nodriver_cb = [](sinsp* inspector) {
 				inspector->open_nodriver();
 			};
 			open_t open_f;
 
+            // 如果系统调用数据源和 k8s 审计数据源同时启用，或者只启用 k8s 审计数据源，则使用默认回调函数，
+            // 否则使用 inspector 对象的 open_nodriver() 方法。
 			// Default mode: both event sources enabled
 			if (enabled_sources.find(syscall_source) != enabled_sources.end() &&
 			    enabled_sources.find(k8s_audit_source) != enabled_sources.end())
@@ -1057,6 +1098,7 @@ int falco_init(int argc, char **argv)
 				open_f = open_cb;
 			}
 
+            // 使用指定的 open 回调函数打开 inspector。
 			try
 			{
 				open_f(inspector);
@@ -1086,6 +1128,7 @@ int falco_init(int argc, char **argv)
 			inspector->start_dropping_mode(1);
 		}
 
+        // TODO: 没有发现 outfile 变量对应哪个命令行参数。
 		if(outfile != "")
 		{
 			inspector->setup_cycle_writer(outfile, rollover_mb, duration_seconds, file_limit, event_limit, compress);
@@ -1169,6 +1212,8 @@ int falco_init(int argc, char **argv)
 		}
 #endif
 
+        // 如果指定了 -e 参数，则从指定的文件中解析 k8s 审计数据。
+        // 如果没有指定 -e 参数，则调用 do_inspect() 函数启动数据采集。
 		if(!app.options().trace_filename.empty() && !trace_is_scap)
 		{
 #ifndef MINIMAL_BUILD
@@ -1195,6 +1240,7 @@ int falco_init(int argc, char **argv)
 
 			duration = ((double)clock()) / CLOCKS_PER_SEC - duration;
 
+            // 获取统计数据。
 			inspector->get_capture_stats(&cstats);
 
 			if(app.options().verbose)
